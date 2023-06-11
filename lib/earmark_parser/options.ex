@@ -28,7 +28,8 @@ defmodule EarmarkParser.Options do
             # deprecated
             pedantic: false,
             smartypants: false,
-            timeout: nil
+            timeout: nil,
+            embedders: []
 
   @doc false
   def add_deprecations(options, messages)

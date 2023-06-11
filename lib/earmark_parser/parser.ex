@@ -1,5 +1,4 @@
 defmodule EarmarkParser.Parser do
-
   @moduledoc false
   alias EarmarkParser.{Block, Line, LineScanner, Options}
 
@@ -54,7 +53,6 @@ defmodule EarmarkParser.Parser do
   def parse_lines(lines, options, recursive) do
     {blocks, footnotes, options} =
       lines |> remove_trailing_blank_lines() |> lines_to_blocks(options, recursive)
-
 
     links = links_from_blocks(blocks)
     {blocks, links, footnotes, options}
@@ -264,7 +262,13 @@ defmodule EarmarkParser.Parser do
     {code_lines, rest} = Enum.split_while(list, &indent_or_blank?/1)
     code_lines = remove_trailing_blank_lines(code_lines)
     code = for line <- code_lines, do: properly_indent(line, 1)
-    _parse([%Line.Blank{}|rest], [%Block.Code{lines: code, lnb: lnb} | result], options, recursive)
+
+    _parse(
+      [%Line.Blank{} | rest],
+      [%Block.Code{lines: code, lnb: lnb} | result],
+      options,
+      recursive
+    )
   end
 
   ###############
@@ -272,7 +276,48 @@ defmodule EarmarkParser.Parser do
   ###############
 
   defp _parse(
-         [%Line.Fence{delimiter: delimiter, language: language, lnb: lnb} | rest],
+         [
+           %Line.Fence{delimiter: delimiter, language: "embed::" <> embedder, lnb: lnb} = line
+           | rest
+         ],
+         result,
+         options,
+         recursive
+       ) do
+    {code_lines, rest} =
+      Enum.split_while(rest, fn line ->
+        !match?(%Line.Fence{delimiter: ^delimiter, language: _}, line)
+      end)
+
+    {rest1, options1} = _check_closing_fence(rest, lnb, delimiter, options)
+    code = for line <- code_lines, do: line.line
+    code = Enum.join(code, "\n")
+
+    {module, function, args} = Keyword.fetch!(options.embedders, String.to_atom(embedder))
+
+    embedded = apply(module, function, [code | args])
+
+    # evaluate the injected code. Notice that the evaluation funciton could be
+    # passed as a modifier on the inject language
+
+    new_lines =
+      embedded
+      |> String.split(~r{\r\n?|\n})
+      |> LineScanner.scan_lines(options, recursive)
+
+    _parse(
+      new_lines ++ rest1,
+      result,
+      options1,
+      recursive
+    )
+  end
+
+  defp _parse(
+         [
+           %Line.Fence{annotation: annotation, delimiter: delimiter, language: language, lnb: lnb}
+           | rest
+         ],
          result,
          options,
          recursive
@@ -287,7 +332,7 @@ defmodule EarmarkParser.Parser do
 
     _parse(
       rest1,
-      [%Block.Code{lines: code, language: language, lnb: lnb} | result],
+      [%Block.Code{annotation: annotation, lines: code, language: language, lnb: lnb} | result],
       options1,
       recursive
     )
@@ -443,7 +488,6 @@ defmodule EarmarkParser.Parser do
     )
   end
 
-
   #######################################################
   # Assign attributes that follow a block to that block #
   #######################################################
@@ -459,10 +503,16 @@ defmodule EarmarkParser.Parser do
   end
 
   defp _check_closing_fence(rest, lnb, delimiter, options)
+
   defp _check_closing_fence([], lnb, delimiter, options) do
-    {[], add_message(options, {:error, lnb, "Fenced Code Block opened with #{delimiter} not closed at end of input"})}
+    {[],
+     add_message(
+       options,
+       {:error, lnb, "Fenced Code Block opened with #{delimiter} not closed at end of input"}
+     )}
   end
-  defp _check_closing_fence([_|rest], _lnb, _delimiter, options) do
+
+  defp _check_closing_fence([_ | rest], _lnb, _delimiter, options) do
     {rest, options}
   end
 
