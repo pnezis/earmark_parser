@@ -295,7 +295,7 @@ defmodule EarmarkParser.Parser do
 
     {module, function, args} = Keyword.fetch!(options.embedders, String.to_atom(embedder))
 
-    embedded = apply(module, function, [code | args])
+    embedded = apply(module, function, [code, embedder, args])
 
     # evaluate the injected code. Notice that the evaluation funciton could be
     # passed as a modifier on the inject language
